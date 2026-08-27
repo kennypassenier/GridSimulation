@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="nl" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Simulator</title>
+
+<!-- Bootstrap 5.3.8, lokaal meegeleverd in plaats van via een CDN. Reden: het
+     dashboard mag tijdens de demo niet afhangen van een internetverbinding -
+     dezelfde redenering als waarom de container-images lokaal gedistribueerd
+     worden in plaats van uit een registry gehaald.
+     LET OP: server.js moet .css als text/css serveren, anders weigert de
+     browser de stylesheet toe te passen. -->
+<link rel="stylesheet" href="/bootstrap.min.css">
+
+<!-- Eigen stijl NA Bootstrap, zodat onze regels van die van Bootstrap winnen. -->
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="p-3">
+
+<div id="login" class="d-flex flex-column align-items-center justify-content-center vh-100 gap-3">
+  <h1 class="h4">Grid Simulator</h1>
+  <input id="pw" type="password" class="form-control w-auto" placeholder="wachtwoord" autofocus>
+  <button id="loginbtn" class="btn btn-primary">Inloggen</button>
+  <div id="loginmsg" class="text-body-secondary small"></div>
+</div>
+
+<div id="app" class="d-none">
+  <h1 class="h5 mb-3">High Availability Grid Simulator</h1>
+  <div id="banner" class="alert alert-danger d-none"></div>
+
+  <div class="row g-3">
+
+    <div class="col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small">VRAAG</div>
+        <div id="demand" class="display-6 fw-bold">- MW</div>
+        <input type="range" class="form-range" id="slider" min="0" max="1000" step="50" value="100">
+        <div class="text-body-secondary small">0-1000 MW &middot; ontwerpcapaciteit is ongeveer 680 MW; daarboven gaat het net bewust in een tekort</div>
+
+        <div class="text-body-secondary small mt-3">AANBOD</div>
+        <div id="supply" class="display-6 fw-bold">- MW</div>
+        <div class="progress mb-2" style="height:14px" id="supplybar"></div>
+
+        <div class="small">
+          <span class="me-3"><i class="swatch" style="background:var(--wind)"></i>wind <b id="mw-wind">0</b></span>
+          <span class="me-3"><i class="swatch" style="background:var(--diesel)"></i>diesel <b id="mw-diesel">0</b></span>
+          <span class="me-3"><i class="swatch" style="background:var(--nuclear)"></i>nucleair <b id="mw-nuclear">0</b></span>
+        </div>
+        <div id="nukeprog" class="text-body-secondary small mt-2"></div>
+        <div class="text-body-secondary small mt-2">Windregime via CronJobs: 8 turbines om 06:00 en 15:00, terug naar 2 om 11:00 en 21:00. De opbrengst per turbine varieert continu met de wind.</div>
+      </div></div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small">LAATSTE 5 MINUTEN</div>
+        <canvas id="chart" width="600" height="150"></canvas>
+      </div></div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small mb-2">PODS PER WORKER (live plaatsing)</div>
+        <div class="d-flex gap-2" id="nodecols"></div>
+        <div class="text-body-secondary small mt-2">Sterft een VM, dan blijven zijn pods doorgestreept staan: dat is de laatst bekende toestand van Kubernetes. Ze worden binnen ongeveer 30 seconden verplaatst naar de overlevende worker.</div>
+      </div></div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small mb-2">CHAOS ENGINEERING - harde shutdown van een worker-VM</div>
+        <div id="chaos" class="text-body-secondary small">laden...</div>
+        <div class="text-body-secondary small mt-2">Een tegelijk - het systeem weigert een tweede kill zolang er een worker plat ligt. Een gestopte worker krijgt hier een knop om hem weer aan te zetten.</div>
+      </div></div>
+    </div>
+
+  </div>
+
+  <div class="card mt-3"><div class="card-body">
+    <div class="text-body-secondary small mb-2">GEBEURTENISSEN (nieuwste eerst)</div>
+    <div id="eventlog" class="font-monospace small"></div>
+  </div></div>
+
+  <div class="card mt-3"><div class="card-body">
+    <div class="text-body-secondary small">BESLISSING VAN DE CONTROLLER</div>
+    <div id="ticker" class="font-monospace small text-body-secondary">-</div>
+  </div></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

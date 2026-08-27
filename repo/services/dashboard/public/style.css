@@ -1,0 +1,76 @@
+:root {
+    --wind: #4cc9f0;
+    --diesel: #f4a259;
+    --nuclear: #80ed99;
+    --demand: #ef476f;
+    --infra: #5c6f91;
+}
+
+.pod {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 5px;
+    margin: 2px;
+    font-size: 11px;
+    color: #081018;
+    font-weight: 600;
+}
+
+.pod.notready {
+    opacity: .4;
+}
+
+.pod.infra {
+    color: #dfe7f5;
+}
+
+.pod.stale {
+    opacity: .3;
+    text-decoration: line-through;
+}
+
+.nodecol {
+    background: #0006;
+    border-radius: 8px;
+    padding: 8px;
+    min-height: 140px;
+}
+
+.nodecol.dead {
+    outline: 2px solid var(--demand);
+}
+
+.dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.dot.ok {
+    background: #3ddc84;
+}
+
+.dot.bad {
+    background: var(--demand);
+}
+
+.swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 4px;
+}
+
+canvas {
+    width: 100%;
+    height: 150px;
+}
+
+#eventlog {
+    max-height: 260px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}

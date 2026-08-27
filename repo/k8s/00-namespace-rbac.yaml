@@ -1,0 +1,103 @@
+# Hier leggen we vast wie wat mag in het cluster.
+# Twee items hebben rechten nodig:
+# - grid-controller: mag diesel en kernenergie schalen, vraagwaarde aanpassen en pods bekijken
+# - wind-scaler: mag uitsluitend het windpark schalen
+#
+# Principe: least privilege. 
+# Elke component krijgt exact de rechten die het nodig heeft en geen enkele meer. 
+#
+# Live bewijzen: 
+#  - kubectl auth can-i patch deployments/diesel-generator --subresource=scale -n grid --as=system:serviceaccount:grid:grid-controller   -> yes
+#  - kubectl auth can-i patch deployments/wind-farm --subresource=scale -n grid --as=system:serviceaccount:grid:grid-controller          -> no (resourceNames)
+#  - kubectl auth can-i delete pods -n grid --as=system:serviceaccount:grid:grid-controller                                              -> no
+# Alles van dit project leeft in 1 namespace: "kubectl get all -n grid"toont precies dit project.
+# De Roles hieronder kunnen namespace-scoped blijven en het geheel is met 1 commando te verwijderen.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grid
+---
+# Een ServiceAccount is de identiteit van een pod binnen het cluster.
+# Kubernetes koppelt automatisch een token aan elke pod die hem gebruikt
+# (serviceAccountName in 20-apps.yaml); daarmee authenticeert k8s.js zich.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grid-controller
+  namespace: grid
+---
+# Een Role beschrijft rechten binnen één namespace. 
+# Bewust een Role en geen ClusterRole. 
+# We blijven binnen onze namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grid-controller
+  namespace: grid
+rules:
+  # View pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "get"]
+  # De ConfigMap met de vraagwaarde: 
+  # - get om de waarde terug te lezen bij heropstart van de controller.
+  # - create en update om de waarde aan te passen als de gebruiker dat via het dashboard doet.  
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update"]
+  # Deployments/scale: 
+  # - replicas mogen gewijzigd worden.
+  # - image, env vars en probes aanpassen mag niet.
+  # ResourceNames: alleen diesel-generator en nuclear-plant mogen geschaald worden.
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["diesel-generator", "nuclear-plant"]
+    verbs: ["get", "patch"]
+---
+# De RoleBinding koppelt de Role aan de ServiceAccount. 
+# Zonder deze koppeling bestaan de rechten wel maar heeft niemand ze
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grid-controller
+  namespace: grid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grid-controller
+subjects:
+  - kind: ServiceAccount
+    name: grid-controller
+    namespace: grid
+---
+# Een aparte identiteit voor de CronJobs, met nog minder rechten dan de controller. 
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wind-scaler
+  namespace: grid
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wind-scaler
+  namespace: grid
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["wind-farm"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wind-scaler
+  namespace: grid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wind-scaler
+subjects:
+  - kind: ServiceAccount
+    name: wind-scaler
+    namespace: grid

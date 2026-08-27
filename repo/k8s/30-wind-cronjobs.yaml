@@ -1,0 +1,73 @@
+# Twee CronJobs schalen het windpark volgens een dagritme. 
+# Dit is het enige onderdeel dat op de klok werkt in plaats van op waarneming.
+# Wind heeft twee lagen:
+# - Regime: Hoeveel turbines draaien er? Dat regelen deze CronJobs.
+# - Vlagen: Hoeveel levert een draaiende turbine? Dat regelt elke windpod zelf.
+#
+# Demonstreren zonder op het schema te wachten:
+#   kubectl get cronjobs -n grid: de objecten en hun schema
+#   kubectl get jobs -n grid: echte historiek van eerdere runs
+#   kubectl create job wind-demo -n grid --from=cronjob/wind-rise
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wind-rise
+  namespace: grid
+spec:
+  # Twee momenten per dag waarop het gaat waaien zodat er in een 
+  # normale dag genoeg historiek ontstaat om te tonen.
+  schedule: "0 6,15 * * *"  
+  timeZone: "Europe/Brussels"
+  # Standaard blijven er 3 voltooide Jobs bewaard.
+  # Wij houden er 6 om een overtuigende historiek te kunnen tonen als bewijs dat dit al dagen draait.
+  successfulJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      # Na 48 uur worden de Job-objecten opgeruimd, anders wordt
+      # "kubectl get jobs" na een week onleesbaar.
+      ttlSecondsAfterFinished: 172800
+      template:
+        spec:
+          # De beperkte identiteit uit 00-namespace-rbac.yaml.
+          # Deze mag uitsluitend wind-farm schalen.
+          serviceAccountName: wind-scaler
+          # Mislukt de job, dan maakt de Job-controller een nieuwe pod aan in
+          # plaats van de oude te herstarten
+          # Hierdoor krijgen we een schone log per poging.
+          restartPolicy: Never
+          containers:
+            - name: scale
+              # Zelfgebouwd image met alpine + curl               
+              image: gridsim/wind-scaler:v2
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: REPLICAS
+                  value: "8"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wind-fall
+  namespace: grid
+spec:
+  # De wind gaat liggen: laat in de ochtend en 's avonds.
+  schedule: "0 11,21 * * *"
+  timeZone: "Europe/Brussels"
+  successfulJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 172800
+      template:
+        spec:
+          serviceAccountName: wind-scaler
+          restartPolicy: Never
+          containers:
+            - name: scale
+              image: gridsim/wind-scaler:v2
+              imagePullPolicy: IfNotPresent
+              # Terug naar de rustige-dag-toestand
+              # Dezelfde waarde als de replicas: 2 waarmee wind-farm in 10-sources.yaml begint.
+              env:
+                - name: REPLICAS
+                  value: "2"

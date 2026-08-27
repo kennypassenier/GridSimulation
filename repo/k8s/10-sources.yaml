@@ -1,0 +1,255 @@
+# Hier worden de drie stroombronnen gedefinieerd.
+# Ze hebben elk hun eigen deployment, daardoor kan de controller ze apart opstarten en afsluiten.
+# Er zijn drie belangrijke eigenschappen voor de demo:
+# - Tolerations met tolerationSeconds: 10
+# - TopologySpreadConstraints
+# - Bewust kleine resource requests
+
+# tolerations met tolerationSeconds:
+# Als we dit niet zelf instellen, dan zou Kubernetes standaard de pods pas na vijf minuten
+# verplaatsen in geval van een dode node. Niet aanvaardbaar voor onze demo.
+# Scenario bij harde shutdown: 
+# - Kubelet geeft geen statusmeldingen meer. 
+# - node-monitor-grace-period (20 seconden) verloopt en controller-manager markeert de node als "NotReady".
+# - Er wordt een taint toegevoegd: node.kubernetes.io/unreachable:NoExecute.
+# - Alle pods hebben een impliciete tolerantie van 300 seconden voor die taint. 
+# - Na die 300 seconden worden de pods pas verwijderd.
+# Met onze tolerations wordt het: 20 seconden detectie + 10 seconden tolerantie + opstarttijd = 35-45 seconden.
+# We stellen het per pod in in plaats van clusterbreed via de controller-manager-vlaggen 
+# Hierdoor is het declaratief in git, kan iedereen die het manifest leest het zien en 
+# is er geen restart nodig van het control plane om dingen te wijzigen. 
+
+# topologySpreadConstraints:
+# Dit zorgt ervoor dat de pods verdeeld worden over alle workers. 
+# Als we dit niet instellen dan zou het kunnen dat alle pods op 1 worker geplaatst worden.
+# Werkt enkel bij het toewijzen van nieuwe pods. 
+# Draaiende pods blijven altijd op hun worker staan. 
+
+# Kleine resource requests
+# Onze scheduler reserveert resources op basis van requests. 
+# In ons worst-case scenario moet alles op 1 worker kunnen passen. 
+# 12 x diesel + 1 x kernenergie + 8 x wind + controller + 2 x dashboards.
+# Als we teveel resources zouden vragen dan zouden die pods als Pending blijven staan.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: diesel-generator
+  namespace: grid
+spec:
+  # Replicas op nul, onze controller bepaalt zelf hoeveel we er nodig hebben.
+  # "kubectl apply" tijdens een demo gebruiken zou diesel weer op nul zetten. 
+  # Enkel toepassen voor de demo. 
+  replicas: 0
+  selector:
+    matchLabels:
+      app: diesel-generator
+  template:
+    metadata:
+      labels:
+        # app: de Deployment vindt zijn pods via dit label.
+        app: diesel-generator
+        # role: de controller vindt alle stroombronnen via dit label.
+        role: power-source
+        # source: de controller groepeert de stroombronnen per type via dit label.
+        source: diesel
+    spec:
+      containers:
+        - name: diesel
+          # Geen registry-prefix: de image staat lokaal op beide workers,
+          # daar gezet met docker save | ssh worker "k3s ctr images import".
+          # Docker save pakt een image uit de lokale Docker cache en zet die in een tarball.
+          # De ssh pipe naar k3s ctr images import zet die in de lokale containerd cache van de worker. 
+          # Geen internetverbinding nodig, geen pull van DockerHub.
+          image: gridsim/diesel-generator:v2
+          # Gebruik de lokale image, haal niets van internet. 
+          # Pods die terug ingepland worden hebben de image al in hun cache.
+          imagePullPolicy: IfNotPresent
+          # env variableen
+          env:
+            - name: CAPACITY_MW
+              value: "50"
+          ports:
+            - containerPort: 3000
+          # Mag deze pod meetellen als capaciteit?
+          # Polled om de 2 seconden.          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            periodSeconds: 2
+          # Moet deze container herstart worden? Wijst naar /health
+          # Als we /ready zouden gebruiken zou elke unit bij opstarten als kapot gezien worden
+          # en blijven opstarten.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              # Bewust kleine requests
+              # Geheugenlimiet tegen memory leaks.
+              # Geen cpu limiet: zou throttling kunnen veroorzaken waardoor de pods trager opstarten
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+      tolerations:
+        # not-ready: de node meldt zichzelf als niet gereed.
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+        # unreachable: de node antwoordt helemaal niet meer.
+        # exact wat er gebeurt bij een harde shutdown.
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+      # maxSkew 1: Hoeveel verschil er mag zijn tussen de worker met minste/meeste pods.
+      # Bij 10 dieselgeneratoren is 5/5 perfect, 4/6 acceptabel maar 3/7 zou niet meer mogen.
+      # ScheduleAnyway en niet DoNotSchedule: 
+      # Als er maar 1 worker meer beschikbaar zou zijn, dan kan de scheduler de pods daar blijven plaatsen.
+      # Anders zou het dankzij maxSkew 1 niks meer mogen schedulen en blijven de pods op Pending staan.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: diesel-generator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nuclear-plant
+  namespace: grid
+spec:
+  replicas: 0
+  # Als strategy gebruiken we Recreate in plaats van RollingUpdate.
+  # Bij RollingUpdate zouden er twee reactoren tegelijk draaien bij een update.
+  # Recreate zorgt ervoor dat de oude reactor stopt voordat de nieuwe start.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nuclear-plant
+  template:
+    metadata:
+      labels:
+        app: nuclear-plant
+        role: power-source
+        source: nuclear
+    spec:
+      containers:
+        - name: nuclear
+          image: gridsim/nuclear-plant:v2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CAPACITY_MW
+              value: "600"
+            - name: SPINUP_MS
+              value: "60000"
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            periodSeconds: 2
+            # failureThreshold: 45 ipv de standaard 3
+            # De reactor start traag op.
+            # Als we 3 zouden gebruiken dan zou de pod al na 6 seconden (periodSeconds x failureThreshold)
+            # als problematisch worden gezien.
+            failureThreshold: 45
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+      # Geen topologySpreadConstraints: er is maar 1 pod voor kernenergie
+      # Geen spreiding nodig
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wind-farm
+  namespace: grid
+spec:
+  # Hier stellen we wel replicas in.
+  # Wind pods worden door onze CronJobs aangestuurd.
+  # Als we de waarde op nul zouden zetten, dan is er geen wind tot de volgende CronJob start.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wind-farm
+  template:
+    metadata:
+      labels:
+        app: wind-farm
+        role: power-source
+        source: wind
+    spec:
+      containers:
+        - name: wind
+          image: gridsim/wind-farm:v2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CAPACITY_MW
+              value: "40"
+            # Regelt de variabele output van de windturbines.
+            - name: GUST_PERIOD_MS
+              value: "90000"
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 10
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: wind-farm
