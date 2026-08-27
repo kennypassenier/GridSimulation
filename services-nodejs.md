@@ -42,17 +42,13 @@ De nuclear-plant geeft HTTP 503 op "/ready" tot "SPINUP_MS" voorbij is. De readi
 
 Die ene beslissing maakt criterium 1 eerlijk. Er zit nergens een timer in de controller, de overname wordt gestuurd door een waargenomen toestandsverandering en niet door een stopwatch. De 60 seconden bestaan op precies een plek, dus er kan niets uit de pas lopen. En het is een echt Kubernetes mechanisme dat echt werk doet, wat het vak nu net is.
 
-"spinupPct" bestaat enkel zodat het dashboard iets kan tonen tijdens die minuut. Stilte op het scherm is de vijand van een live demo.
-
-Tijdens het ontwikkelen zet ik SPINUP_MS op 5000, want een echte minuut per test is niet vol te houden. In het manifest staat 60000.
-
 ## grid-controller.
 
-Twee bestanden. "k8s.js" is een zelfgeschreven Kubernetes client over de https module van Node, die zich aanmeldt met de ServiceAccount van de pod. Vier operaties, meer niet: pods opsommen op label, de scale subresource van een Deployment lezen en patchen, en de ConfigMap "grid-demand" lezen en schrijven.
+Twee bestanden. "k8s.js" is een zelfgeschreven Kubernetes client over de https module van Node, die zich aanmeldt met de ServiceAccount van de pod. Vier operaties, meer niet: pods opsommen op label, de scale subresource van een deployment lezen en patchen, en de ConfigMap "grid-demand" lezen en schrijven.
 
 Het token wordt bij elke aanvraag opnieuw van schijf gelezen. K3s geeft tokens met een beperkte geldigheidsduur, dus wie dat token bij het opstarten cachet krijgt een uur later 401 fouten. Dat merk je nooit tijdens een demo van tien minuten, wel de ochtend erna.
 
-"server.js" is de regelkring, een tick per 5 seconden:
+"server.js" orchestreert het geheel, een tick per 5 seconden:
 
 ```
 wind      = som van de gemelde opbrengst van elke ready windpod
@@ -77,15 +73,13 @@ De vraagwaarde staat in een ConfigMap en niet in het geheugen. "main()" leest ze
 
 ## dashboard.
 
-Een klein bestand dat drie dingen doet: statische bestanden serveren, de API van de controller proxyen, en de chaos knop afhandelen. De frontend is gewone HTML met fetch en DOM, geen framework en geen CDN. Niets om weg te praten en niets dat kan breken.
+Een klein bestand dat drie dingen doet: statische bestanden serveren, de API van de controller proxyen, en de chaos knop afhandelen. De frontend is gemaakt met Bootstrap.
 
 Aanmelden gaat met een gedeeld wachtwoord dat met "crypto.timingSafeEqual" vergeleken wordt en daarna een met HMAC ondertekende sessiecookie oplevert. Stateless van opzet, dus beide replicas aanvaarden dezelfde sessie zonder gedeelde opslag. De HMAC sleutel komt uit het wachtwoord zelf, dus er is geen tweede geheim om te beheren.
 
 De panelen worden elke 2 seconden bijgewerkt: vraag tegenover totaal aanbod met een rode markering bij tekort, een grafiek van ongeveer vijf minuten met de vraag als lijn en het aanbod als gestapelde vlakken per bron, de opstartindicator van de reactor, de pods per worker in twee vaste kolommen met een VM status uit de Proxmox API, een gebeurtenislogboek, en het chaos paneel.
 
-Die grafiek is het overtuigendste beeld van de hele demo. De dieselwig die krimpt terwijl het nucleaire blok stijgt is de overname.
-
-Twee dingen die de UI goed moet doen, allebei uit testen geleerd.
+Die grafiek is het overtuigendste beeld van de hele demo. De dieselblok die krimpt terwijl het nucleaire blok stijgt is de overname.
 
 Elke fetch heeft een expliciete timeout nodig met "AbortSignal.timeout(4000)". Vlak na een kill kan de verbinding van de browser vastzitten op een dode pod en eeuwig blijven hangen. De eerste versie bevroor op oude data en toonde twee draaiende VM's terwijl er een uit stond.
 

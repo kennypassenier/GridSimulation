@@ -1,6 +1,6 @@
 # K3s cluster
 
-Uitgangspunt zijn de drie VM's uit proxmox-setup.md. Resultaat is een cluster met een control plane waar niets op mag draaien, twee workers, kubectl vanaf mijn desktop, en een gemeten bewijs dat een pod van een gekilde worker binnen een minuut terug is.
+Uitgangspunt zijn de drie VM's uit proxmox-setup.md. Resultaat is een cluster met een control plane waar niets op mag draaien, twee workers, kubectl vanaf mijn desktop, en een gemeten bewijs dat een pod van een uitgezette worker binnen een minuut terug is.
 
 ## Server installeren.
 
@@ -13,7 +13,7 @@ curl -sfL https://get.k3s.io | sh -s - server \
   --write-kubeconfig-mode 644
 ```
 
-De taint is de belangrijkste vlag van het hele project. K3s plant standaard wel workloads op de server, anders dan een volledige Kubernetes distributie. Met deze taint blijft mijn applicatie van het control plane af, en daardoor is "de docent kan enkel workload VM's afsluiten" een eigenschap van het systeem in plaats van een belofte. De systeempods van k3s die op de server moeten draaien tolereren de taint zelf.
+De taint is de belangrijkste vlag van het hele project. K3s plant standaard wel workloads op de server, anders dan een volledige Kubernetes distributie. Met deze taint blijft de applicatie van het control plane af, en daardoor is "de docent kan enkel workload VM's afsluiten" een eigenschap van het systeem in plaats van een belofte. De systeempods van k3s die op de server moeten draaien tolereren de taint zelf.
 
 "--tls-san" zet het IP in het certificaat van de API server, anders geeft kubectl vanaf mijn desktop TLS fouten.
 
@@ -63,7 +63,7 @@ Niet lager zetten. Onder de 15 seconden kan een worker die even hapert door een 
 
 Deze test doe ik bewust voor ik ook maar een regel applicatiecode schrijf. Als de chaos test later raar doet, weet ik dan of ik mijn app of mijn cluster moet debuggen.
 
-Een canary Deployment met 4 replicas van "rancher/mirrored-pause:3.6", met dezelfde tolerations van 10 seconden en dezelfde spread constraint die later elke workload krijgt. De vier pods moeten 2/2 over de workers staan en geen enkele op de server. Staat er toch een op k3s-server, dan is de taint niet toegepast en klopt de rest van het project niet meer.
+Een canary deployment met 4 replicas van "rancher/mirrored-pause:3.6", met dezelfde tolerations van 10 seconden en dezelfde spread constraint die later elke workload krijgt. De vier pods moeten 2/2 over de workers staan en geen enkele op de server. Staat er toch een op k3s-server, dan is de taint niet toegepast en klopt de rest van het project niet meer.
 
 Meten doe ik met twee terminals. In de ene:
 

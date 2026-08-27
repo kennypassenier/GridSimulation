@@ -1,7 +1,5 @@
 # Build log
 
-Wat er echt gebeurd is tijdens het bouwen, met de fouten erbij. Waar dit document en de setup documenten elkaar tegenspreken, wint dit document. 
-
 ## Fase 1, de VM's.
 
 Template 9000 op basis van de Ubuntu 24.04 cloud image, opslag local-lvm, guest agent aan, seriele console, cloud-init op ide2 en het snippet "local:snippets/k3s-base.yaml" voor de guest agent en swapoff.
@@ -22,7 +20,7 @@ K3s v1.36.3+k3s1, geinstalleerd met het script van get.k3s.io.
 
 De server krijgt drie vlaggen mee:
 
-- de control plane taint, zodat mijn workloads van de server blijven
+- de control plane taint zodat mijn workloads van de server blijven
 - "--tls-san 10.10.10.20" zet dat IP in het certificaat van de API server. Zonder die vlag klaagt kubectl vanaf mijn desktop dat het certificaat niet bij het adres past.
 - "--write-kubeconfig-mode 644", want anders is "k3s.yaml" enkel leesbaar voor root. Dat bestand is de bron van kubeconfig-gridsim.yaml.
 
@@ -35,7 +33,7 @@ kube-controller-manager-arg:
   - node-monitor-grace-period=20s
 ```
 
-Dat is hoe lang de server op een hartslag wacht voor hij een node NotReady verklaart. Standaard 40 seconden, ik halveer dat. Samen met de toleration van 10 seconden in elke Deployment is dat mijn volledige herstelbudget.
+Dat is hoe lang de server op een hartslag wacht voor hij een node NotReady verklaart. Standaard 40 seconden. Samen met de toleration van 10 seconden in elke Deployment is dat het volledige herstelbudget.
 
 Gecontroleerd met "kubectl get nodes" en "kubectl describe node k3s-server | grep Taint". Drie nodes Ready, taint staat waar hij moet staan.
 
@@ -45,14 +43,14 @@ Deze test doe ik bewust voor er ook maar een regel applicatiecode bestaat. Doet 
 
 Canary met 4 keer pause:3.6, tolerations van 10 seconden, spread met maxSkew 1. Kwam 2 om 2 op de workers terecht en niets op de server. Gemeten met een poller van 1 seconde, "qm stop" als kill:
 
-- worker-1: NotReady na 12 seconden, alle vier draaiend op de overlevende na **24 seconden**
-- worker-2: NotReady na 19 seconden, alle vier draaiend na **29 seconden**
+- worker-1: NotReady na 12 seconden, alle vier draaiend op de overlevende na 24 seconden
+- worker-2: NotReady na 19 seconden, alle vier draaiend na 29 seconden
 
 ### Probleem 3, image corruptie na een harde kill.
 
-Dit is de grootste van de reeks. Ik heb de eerste kill gedaan ongeveer een minuut na het aanmaken van het cluster, terwijl worker-1 nog systeemimages aan het uitpakken was. Na "qm start" crashte elke container op die worker, traefik, svclb en canary, met exit 255. Een herstart van de agent hielp niet. Een nette reboot hielp ook niet. "crictl logs" gaf de oorzaak: "exec /entrypoint.sh: exec format error". De harde poweroff had half geschreven image layers in de content store van containerd verminkt.
+Dit is de grootste van de reeks. Ik heb de eerste kill gedaan ongeveer een minuut na het aanmaken van het cluster, terwijl worker-1 nog systeemimages aan het uitpakken was. Na "qm start" crashte elke container op die worker, traefik, svclb en canary, met exit 255. Een herstart van de agent hielp niet. Een nette reboot hielp ook niet. "crictl logs" gaf de oorzaak: "exec /entrypoint.sh: exec format error". De harde shutdown had half geschreven image layers in de content store van containerd gecorrupteerd.
 
-De journaling van ext4 heeft het bestandssysteem gered. De uitgepakte layers van containerd zijn niet crash safe, en dat is precies de laag waarvan iedereen aanneemt dat het wel goed zit.
+De journaling van ext4 heeft het bestandssysteem gered. De uitgepakte layers van containerd zijn niet crash safe, en dat is precies de laag waarvan ik aannam dat het wel goed zat.
 
 Wat werkte:
 
@@ -80,14 +78,14 @@ Bouwen gebeurt met Docker op de server VM, die door de taint toch niets draait. 
 docker save gridsim/<service>:v2 | ssh worker "k3s ctr -n k8s.io images import -"
 ```
 
-Daarvoor heb ik een SSH sleutel van de server naar beide workers aangemaakt. Geen registry betekent geen internetafhankelijkheid op het moment dat een pod midden in de chaos test herplaatst wordt.
+Daarvoor heb ik een SSH sleutel van de server naar beide workers aangemaakt. Geen registry betekent geen internetafhankelijkheid vanaf het moment dat een pod midden in de chaos test herplaatst wordt.
 
 Wat er uitgerold is:
 
 - namespace "grid"
 - RBAC met minimale rechten. De controller mag enkel aan de scale van diesel en nucleair, plus configmaps lezen en schrijven en pods opsommen. De wind-scaler mag enkel aan de scale van wind-farm.
 - de drie bronnen, de controller, en twee dashboards op NodePort 30080
-- wind CronJobs op Europe/Brussels. Om 6 en 15 uur naar 8 turbines, om 11 en 21 uur terug naar 2.
+- wind CronJobs. Om 6 en 15 uur naar 8 turbines, om 11 en 21 uur terug naar 2.
 
 ### Probleem 4, /scale geeft een leeg object bij nul replicas.
 
@@ -101,7 +99,7 @@ In twee lagen opgelost. In elke service "process.on('SIGTERM', () => process.exi
 
 ### Probleem 6, bitnami/kubectl verdwenen van Docker Hub.
 
-De wind CronJob gaf "docker.io/bitnami/kubectl:1.31: not found", want Bitnami heeft de gratis tags in 2025 opgeruimd. Vervangen door een zelfgebouwde wind-scaler van 5 MB, alpine met curl die de scale subresource patcht met zijn eigen token. Achteraf beter, want nu zijn er nul externe pulls tijdens de demo en blijft de vastgezette RBAC gelden.
+De wind CronJob gaf "docker.io/bitnami/kubectl:1.31: not found". Vervangen door een zelfgebouwde wind-scaler van 5 MB, alpine met curl die de scale subresource patched met zijn eigen token. Achteraf beter, want nu zijn er nul externe pulls tijdens de demo en blijft de vastgezette RBAC gelden.
 
 ### Observatie 7, NodePort hangt vlak na een kill.
 
@@ -122,7 +120,7 @@ Een nieuwe verbinding naar de NodePort in de eerste 20 seconden na een dode work
 - 2 windpods, 80 MW: diesel piekt op 10 pods en 500 MW, daarna 0
 - 8 windpods, 320 MW: diesel piekt op 5 pods en 250 MW, daarna 0
 
-### Criterium 3, chaos. Worker-2 gekild met de dashboard knop, met de controller en de kerncentrale erop en volle belasting van 500 MW.
+### Criterium 3, chaos. Worker-2 shutdown met de dashboard knop, met de controller en de kerncentrale erop en volle belasting van 500 MW.
 
 - 0 s: harde stop via de chaos knop
 - +19 s: worker-2 NotReady
@@ -131,7 +129,7 @@ Een nieuwe verbinding naar de NodePort in de eerste 20 seconden na een dode work
 - +90 s: nucleair opnieuw kritisch, met een eerlijke nieuwe opstarttijd van 60 seconden
 - +115 s: afbouw klaar, net stabiel op een enkele worker
 
-Verder geverifieerd: worker-1 killen terwijl worker-2 al plat lag geeft een weigering met HTTP 409. Herstel via de Power on knop, de node was na ongeveer 50 seconden terug Ready.
+Verder geverifieerd: worker-1 uitzetten terwijl worker-2 al plat lag geeft een weigering met HTTP 409. Herstel via de Power on knop, de node was na ongeveer 50 seconden terug Ready.
 
 ## Toegang en gegevens.
 
@@ -163,9 +161,9 @@ Daardoor is "dynamisch rekening houden met de windproductie" letterlijk waar en 
 
 ### Extra chaos scenario's, allebei live geverifieerd.
 
-Test A, stabiel net met de reactor kritisch, en dan de node gekild waar de controller en de kerncentrale op stonden, met de vraag rond 1000. Het gat in "/state" duurde ongeveer 30 seconden voor de controller herplaatst was, diesel zat op het maximum van 600 MW na 39 seconden, en de reactor was kritisch op de overlevende na 92 seconden. De vraag boven de capaciteit gaf het bedoelde tekort tijdens het opstarten.
+Test A, stabiel net met de reactor kritisch, en dan de node uitgtezet waar de controller en de kerncentrale op stonden, met de vraag rond 1000. Het gat in "/state" duurde ongeveer 30 seconden voor de controller herplaatst was, diesel zat op het maximum van 600 MW na 39 seconden, en de reactor was kritisch op de overlevende na 92 seconden. De vraag boven de capaciteit gaf het bedoelde tekort tijdens het opstarten.
 
-Test B, de node gekild waar de kerncentrale op stond terwijl die aan het opstarten was, met vraag 500 en 10 dieselpods verdeeld 5 om 5. Na 24 seconden waren de 5 diesels van het slachtoffer geevicteerd, aanbod zakte naar 305 MW en er was ongeveer 12 seconden tekort. Na 33 seconden was de reactor herplaatst en begon het opstarten eerlijk opnieuw, en na 36 seconden waren de vervangende diesels ready en was de vraag weer gedekt. De controller koos er 11 omdat de wind net in een dal zat.
+Test B, de node uitgezet waar de kerncentrale op stond terwijl die aan het opstarten was, met vraag 500 en 10 dieselpods verdeeld 5 om 5. Na 24 seconden waren de 5 diesels van het slachtoffer geevicteerd, aanbod zakte naar 305 MW en er was ongeveer 12 seconden tekort. Na 33 seconden was de reactor herplaatst en begon het opstarten eerlijk opnieuw, en na 36 seconden waren de vervangende diesels ready en was de vraag weer gedekt. De controller koos er 11 omdat de wind net in een dal zat.
 
 Twee valkuilen die ik in deze sessie echt heb geraakt. Een "kubectl apply" van 10-sources.yaml midden in een test zette diesel en nucleair terug op 0 replicas, waarna de controller binnen een tick alles herbouwde uit de ConfigMap. En de valkuil met dezelfde image tag: worker-1 stond uit tijdens een distributieronde en draaide na de herstart even oude images, tot opnieuw importeren plus een rollout restart het rechttrok.
 

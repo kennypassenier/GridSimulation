@@ -2,7 +2,7 @@
 
 ## De host en de drie VM's.
 
-Proxmox VE 9.2.4 op 10.10.5.250, 12 cores en 31 GiB RAM. Op die host draaien al OPNsense (VM 100), Home Assistant (VM 101) en zeven LXC's, dus er was maar ongeveer 8,3 GiB vrij. De planning ging uit van 4 GiB per VM en dat paste niet. Het is 2048 MiB voor de server geworden en 2560 MiB per worker. Gemeten is dat ruim genoeg, ook in het slechtste geval waarbij alle pods op één worker draaien.
+Proxmox VE 9.2.4 op 10.10.5.250, 12 cores en 31 GiB RAM. 8,3 GiB RAM effectief vrij. De planning ging uit van 4 GiB per VM en dat paste niet. Het is 2048 MiB voor de server geworden en 2560 MiB per worker. Gemeten is dat ruim genoeg, ook in het slechtste geval waarbij alle pods op één worker draaien.
 
 - 201 "k3s-server", 10.10.10.20, 2 cores, 2048 MiB, 20,5 G
 - 202 "k3s-worker-1", 10.10.10.21, 2 cores, 2560 MiB, 31,5 G
@@ -14,7 +14,7 @@ De bridge "vmbr0" is VLAN aware, dus elke VM heeft "tag=10" nodig. Gateway en DN
 
 Ubuntu drie keer installeren is verloren tijd. Met een template zijn de nodes identiek en is een kapotte VM opnieuw opbouwen twee commando's in plaats van een avond.
 
-Eerst het content type "snippets" aanzetten op storage "local". Let op, "pvesm set" VERVANGT de hele lijst. Eerst lezen wat er staat en dan alles opnieuw opgeven, anders verlies je stilletjes een type. Op deze host stond "import" er ook bij.
+Eerst het content type "snippets" aanzetten op storage "local". Let op, "pvesm set" vervangt de hele lijst. Eerst lezen wat er staat en dan alles opnieuw opgeven, anders verlies je stilletjes een type. Op deze host stond "import" er ook bij.
 
 ```bash
 grep -A2 '^dir: local$' /etc/pve/storage.cfg
@@ -67,7 +67,7 @@ runcmd:
 
 Aankoppelen met "qm set <vmid> --cicustom vendor=local:snippets/k3s-base.yaml".
 
-Swap uitzetten is niet optioneel. De kubelet weigert te starten met actieve swap, tenzij je "failSwapBehavior" expliciet configureert. En een node die swapt geeft precies de onvoorspelbare vertraging die een demo met een stopwatch onbruikbaar maakt.
+Swap uitzetten is niet optioneel. De kubelet weigert te starten met actieve swap, tenzij je "failSwapBehavior" expliciet configureert. En een node die swapt geeft precies de onvoorspelbare vertraging die een demo met verwachtte timingen onbruikbaar maakt.
 
 ## De drie VM's klonen.
 
